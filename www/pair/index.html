@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>灵鹊 Larkwire · 配对</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #0d1117; color: #c9d1d9;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 64px 24px 32px; text-align: center;
+  }
+  .mark { width: 88px; height: 88px; margin-bottom: 20px; }
+  h1 { font-size: 26px; font-weight: 600; color: #f0f6fc; letter-spacing: 0.5px; }
+  .sub { margin-top: 6px; font-size: 14px; color: #8b949e; }
+  #status { margin-top: 36px; font-size: 16px; color: #c9d1d9; min-height: 24px; }
+  #openBtn {
+    display: inline-block; margin-top: 20px; padding: 13px 40px;
+    background: #1f6feb; color: #fff; border-radius: 10px;
+    font-size: 16px; text-decoration: none;
+  }
+  #openBtn:active { background: #1a5cd0; }
+  #fpLine { margin-top: 28px; font-size: 12px; color: #484f58; }
+  #fallback { margin-top: 32px; padding-top: 24px; border-top: 1px solid #21262d; width: 100%; max-width: 320px; }
+  #fallback p { font-size: 14px; color: #8b949e; line-height: 1.9; }
+  #fallback .soon { color: #79c0ff; }
+  /* 微信蒙层：盖全屏引导「浏览器打开」 */
+  #wxMask {
+    position: fixed; inset: 0; z-index: 99;
+    background: rgba(13, 17, 23, 0.97);
+    display: flex; flex-direction: column; align-items: flex-end;
+    padding: 18px 22px 0 0;
+  }
+  #wxMask .arrow { font-size: 44px; color: #79c0ff; line-height: 1; }
+  #wxMask p { margin-top: 10px; width: 100%; text-align: center; font-size: 17px; line-height: 2; color: #f0f6fc; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- 三节点标：中继（顶·蓝）— 桥（左下·绿）— 手机（右下·橙），与 App 图标同构 -->
+<svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
+  <line x1="50" y1="26" x2="28" y2="72" stroke="#30363d" stroke-width="3"/>
+  <line x1="50" y1="26" x2="72" y2="72" stroke="#30363d" stroke-width="3"/>
+  <line x1="28" y1="72" x2="72" y2="72" stroke="#30363d" stroke-width="3"/>
+  <circle cx="50" cy="22" r="11" fill="#79c0ff"/>
+  <circle cx="26" cy="74" r="11" fill="#3fb950"/>
+  <circle cx="74" cy="74" r="11" fill="#d29922"/>
+</svg>
+
+<h1>灵鹊 Larkwire</h1>
+<p class="sub">把手机变成 Agent 遥控台</p>
+
+<p id="status">正在打开灵鹊 App…</p>
+<a id="openBtn" href="#">打开灵鹊 App</a>
+<p id="fpLine"></p>
+
+<div id="fallback" hidden>
+  <p>
+    还没装灵鹊？<br>
+    <span id="iosHint" hidden>iOS 版 <span class="soon">即将上架 TestFlight</span>，敬请期待。</span>
+    <span id="androidHint" hidden>Android 版 <span class="soon">即将到来</span>，敬请期待。</span>
+    <span id="desktopHint" hidden>请用手机浏览器打开本页。</span>
+    <br>装好之后再扫一次电脑上的二维码即可配对。
+  </p>
+  <!-- 公测替换点：iOS TestFlight 链接就位后，把 iosHint 换成
+       <a class="soon" href="https://testflight.apple.com/join/XXXX">加入 TestFlight 测试</a> -->
+  <!-- 公测替换点：Android APK 直链就位后，把 androidHint 换成
+       <a class="soon" href="https://larkwire.kowems.site/dl/larkwire.apk">下载 Android 版</a> -->
+</div>
+
+<div id="noToken" hidden>
+  <p style="margin-top:36px; font-size:16px; line-height:1.9;">
+    这个配对链接无效或已过期。<br>
+    请回到电脑重新运行 <b>larkwire up</b>，<br>用手机扫新的二维码。
+  </p>
+</div>
+
+<div id="wxMask" hidden>
+  <div class="arrow">↗</div>
+  <p>点右上角「 ⋯ 」<br>选择「在浏览器打开」<br><span style="font-size:14px; color:#8b949e;">微信里无法直接拉起 App</span></p>
+</div>
+
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var t = q.get("t"), r = q.get("r"), fp = q.get("fp");
+  var ua = navigator.userAgent;
+  var isWx = /MicroMessenger/i.test(ua);
+  var isIos = /iPhone|iPad|iPod/i.test(ua);
+  var isAndroid = /Android/i.test(ua);
+
+  // 微信内置浏览器：只显示「浏览器打开」蒙层（微信拦 scheme 拉起与 APK 下载）
+  if (isWx) {
+    document.getElementById("wxMask").hidden = false;
+    return;
+  }
+
+  // 缺 token：不是有效配对链接
+  if (!t) {
+    document.getElementById("status").hidden = true;
+    document.getElementById("openBtn").hidden = true;
+    document.getElementById("noToken").hidden = false;
+    return;
+  }
+
+  // 拼 scheme：参数逐项 encode 后透传给 App 配对页（不插 HTML，防注入）
+  var scheme = "larkwire://pair?t=" + encodeURIComponent(t);
+  if (r) scheme += "&r=" + encodeURIComponent(r);
+  if (fp) scheme += "&fp=" + encodeURIComponent(fp);
+
+  var openBtn = document.getElementById("openBtn");
+  openBtn.href = scheme;
+  if (fp) document.getElementById("fpLine").textContent = "桥指纹 " + fp + "（配对时与电脑核对）";
+
+  // 未装引导按平台分支
+  var hint = document.getElementById(isIos ? "iosHint" : isAndroid ? "androidHint" : "desktopHint");
+  hint.hidden = false;
+
+  // 自动拉起；iOS 对未注册 scheme 静默失败（页面不切走），2.5s 后显示未装引导
+  var timer = setTimeout(function () {
+    document.getElementById("fallback").hidden = false;
+    document.getElementById("status").textContent = "没有拉起？点上面的按钮重试";
+  }, 2500);
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) clearTimeout(timer); // 切走=大概率拉起成功，不弹未装引导
+  });
+  location.href = scheme;
+})();
+</script>
+</body>
+</html>

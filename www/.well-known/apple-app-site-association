@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "45TYW2FJ26.site.kowems.larkwire"
+        ],
+        "components": [
+          {
+            "/": "/pair*"
+          }
+        ]
+      }
+    ]
+  }
+}

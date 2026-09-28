@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# esbuild 单文件部署产物（DEPLOY.md 配方可从源码重建；Release 页提供下载）
+relay.bundle.mjs

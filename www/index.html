@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>灵鹊 Larkwire · 把手机变成 Agent 遥控台</title>
+<meta name="description" content="灵鹊 Larkwire：把跑在电脑上的 Claude Code 等 AI Agent 安全送上手机——看实时输出、出门接管发话、手机点权限卡。端到端加密，中继对内容零可见。">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: #0d1117; color: #c9d1d9;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    line-height: 1.7;
+  }
+  a { color: #79c0ff; text-decoration: none; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+
+  /* 顶栏 */
+  header { padding: 20px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; color: #f0f6fc; }
+  .brand svg { width: 30px; height: 30px; }
+  header .wrap { display: flex; justify-content: space-between; align-items: center; }
+  nav a { margin-left: 22px; font-size: 14px; color: #8b949e; }
+  nav a:hover { color: #f0f6fc; }
+
+  /* Hero */
+  .hero { text-align: center; padding: 72px 0 56px; }
+  .hero .mark { width: 96px; height: 96px; margin-bottom: 24px; }
+  .hero h1 { font-size: 42px; font-weight: 700; color: #f0f6fc; letter-spacing: 1px; }
+  .hero .tag { margin-top: 14px; font-size: 19px; color: #8b949e; }
+  .hero .dl { margin-top: 36px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 13px 30px; border-radius: 10px;
+    font-size: 16px; font-weight: 500;
+  }
+  .btn-primary { background: #1f6feb; color: #fff; }
+  .btn-primary:active { background: #1a5cd0; }
+  .btn-ghost { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+  .btn-ghost:active { background: #30363d; }
+  .btn.disabled { opacity: .55; pointer-events: none; }
+
+  /* 代码块 */
+  .codeblock {
+    margin: 28px auto 0; max-width: 460px; background: #161b22;
+    border: 1px solid #30363d; border-radius: 10px; padding: 16px 20px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 15px; color: #7ee787; text-align: left;
+  }
+  .codeblock .cmt { color: #8b949e; font-size: 13px; display: block; margin-bottom: 6px; }
+
+  /* 段落标题 */
+  h2 { font-size: 26px; color: #f0f6fc; text-align: center; margin-bottom: 8px; }
+  .sec-sub { text-align: center; color: #8b949e; font-size: 15px; margin-bottom: 36px; }
+
+  /* 能力卡 */
+  .features { padding: 56px 0; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card {
+    background: #161b22; border: 1px solid #21262d; border-radius: 12px;
+    padding: 26px 22px;
+  }
+  .card .ico { font-size: 28px; }
+  .card h3 { margin-top: 12px; font-size: 18px; color: #f0f6fc; }
+  .card p { margin-top: 8px; font-size: 14px; color: #8b949e; }
+
+  /* 步骤 */
+  .steps { padding: 56px 0; }
+  .steps ol { list-style: none; counter-reset: s; max-width: 620px; margin: 0 auto; }
+  .steps li {
+    counter-increment: s; position: relative; padding: 14px 0 14px 64px;
+    font-size: 16px; color: #c9d1d9;
+  }
+  .steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 12px;
+    width: 40px; height: 40px; border-radius: 50%;
+    background: #21262d; border: 1px solid #30363d;
+    color: #79c0ff; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .steps li b { color: #f0f6fc; }
+  .steps li .dim { color: #8b949e; font-size: 14px; }
+
+  /* 安全段 */
+  .security { padding: 56px 0; }
+  .sec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .sec-item { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 22px; }
+  .sec-item h3 { font-size: 16px; color: #f0f6fc; }
+  .sec-item p { margin-top: 6px; font-size: 14px; color: #8b949e; }
+
+  footer { border-top: 1px solid #21262d; padding: 28px 0 44px; margin-top: 40px; }
+  footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 13px; color: #6e7681; }
+  footer a { color: #8b949e; margin-left: 18px; }
+
+  @media (max-width: 720px) {
+    .grid, .sec-grid { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 32px; }
+    nav a:first-child { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <line x1="50" y1="26" x2="28" y2="72" stroke="#30363d" stroke-width="6"/>
+        <line x1="50" y1="26" x2="72" y2="72" stroke="#30363d" stroke-width="6"/>
+        <line x1="28" y1="72" x2="72" y2="72" stroke="#30363d" stroke-width="6"/>
+        <circle cx="50" cy="22" r="13" fill="#79c0ff"/>
+        <circle cx="26" cy="74" r="13" fill="#3fb950"/>
+        <circle cx="74" cy="74" r="13" fill="#d29922"/>
+      </svg>
+      灵鹊 Larkwire
+    </div>
+    <nav>
+      <a href="#features">能力</a>
+      <a href="#start">上手</a>
+      <a href="#security">安全</a>
+      <a href="https://github.com/kowems/larkwire">桥·协议</a>
+      <a href="https://github.com/kowems/larkwire-relay">中继</a>
+      <a href="https://github.com/kowems/larkwire-desktop">桌面端</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
+      <line x1="50" y1="26" x2="28" y2="72" stroke="#30363d" stroke-width="3"/>
+      <line x1="50" y1="26" x2="72" y2="72" stroke="#30363d" stroke-width="3"/>
+      <line x1="28" y1="72" x2="72" y2="72" stroke="#30363d" stroke-width="3"/>
+      <circle cx="50" cy="22" r="11" fill="#79c0ff"/>
+      <circle cx="26" cy="74" r="11" fill="#3fb950"/>
+      <circle cx="74" cy="74" r="11" fill="#d29922"/>
+    </svg>
+    <h1>把手机变成 Agent 遥控台</h1>
+    <p class="tag">电脑上的 Claude Code 在干活，你在手机上看、接、控</p>
+
+    <div class="dl">
+      <a class="btn btn-primary disabled" id="iosDl" href="#">iOS · TestFlight（即将开放）</a>
+      <a class="btn btn-ghost disabled" id="macDl" href="#">macOS（即将开放）</a>
+      <a class="btn btn-ghost disabled" id="andDl" href="#">Android APK（即将开放）</a>
+    </div>
+
+    <div class="codeblock">
+      <span class="cmt"># 电脑端一条命令（需要 Node.js ≥ 22）</span>
+      $ npx larkwire up
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="wrap">
+    <h2>看 · 接 · 控</h2>
+    <p class="sec-sub">同一段 Agent 会话，三个主动权</p>
+    <div class="grid">
+      <div class="card">
+        <div class="ico">👀</div>
+        <h3>看</h3>
+        <p>手机实时滚动电脑上的 Agent 输出。人出门了，活干完没有、卡在哪一步，掏出手机就知道。干完还能通知你。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🎙️</div>
+        <h3>接</h3>
+        <p>人离开电脑后，手机直接接管会话继续发话——不用冲回电脑前。电脑端在写半截话时绝不插嘴，双写不抢话。</p>
+      </div>
+      <div class="card">
+        <div class="ico">✅</div>
+        <h3>控</h3>
+        <p>权限确认卡在手机上点允许或拒绝。杀了 App 也不怕，推送把卡片送到锁屏，点通知回来接着处理。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="steps" id="start">
+  <div class="wrap">
+    <h2>三步上手</h2>
+    <p class="sec-sub">全程不用注册账号、不用填手机号</p>
+    <ol>
+      <li><b>手机装灵鹊 App</b><br><span class="dim">iOS 走 TestFlight，Android 直接装 APK</span></li>
+      <li><b>电脑跑 <span class="code">npx larkwire up</span>，手机扫终端上的二维码</b><br><span class="dim">扫码时手机和终端显示同一段公钥指纹，核对一致再确认</span></li>
+      <li><b>在电脑上正常开 Claude Code 干活</b><br><span class="dim">会话自动出现在手机上，看 / 接 / 控随时可用</span></li>
+    </ol>
+  </div>
+</section>
+
+<section class="security" id="security">
+  <div class="wrap">
+    <h2>安全：中继是哑的</h2>
+    <p class="sec-sub">你的对话内容，除了你自己的设备，谁都看不到</p>
+    <div class="sec-grid">
+      <div class="sec-item">
+        <h3>🔒 端到端加密</h3>
+        <p>手机与桥各自持有 X25519 密钥，每帧正文用 NaCl secretbox 加密。共享密钥从不经过中继。</p>
+      </div>
+      <div class="sec-item">
+        <h3>🙈 中继零可见</h3>
+        <p>中继只转发密文，开源可审计。它能看到的只有「哪台设备在线、帧多大、什么时间」。</p>
+      </div>
+      <div class="sec-item">
+        <h3>🔑 配对防掉包</h3>
+        <p>配对基于二维码 + 公钥指纹人工核对；桥侧密钥更新必须重新走公钥交换，防中间人替换。</p>
+      </div>
+      <div class="sec-item">
+        <h3>⏱️ 离线暂存有期限</h3>
+        <p>手机不在线时，密文帧最多暂存 10 分钟、每设备 50 帧；到期自动删除。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Larkwire contributors · MIT License</span>
+    <span>
+      <a href="https://github.com/kowems/larkwire">桥·协议</a>
+      <a href="https://github.com/kowems/larkwire-relay">中继</a>
+      <a href="https://github.com/kowems/larkwire-desktop">桌面端</a>
+      <a href="/pair">配对页</a>
+      <a href="https://www.npmjs.com/package/larkwire">npm</a>
+    </span>
+  </div>
+</footer>
+
+<!-- 公测链接替换点：
+  iOS：  document.getElementById('iosDl').href = 'https://testflight.apple.com/join/XXXX' 并去掉 disabled 态与「即将」文案
+  macOS: document.getElementById('macDl').href = '/dl/larkwire.dmg' 同上
+  Android: document.getElementById('andDl').href = '/dl/larkwire.apk' 同上
+-->
+<script>
+  var q = new URLSearchParams(location.search);
+  var tf = q.get("tf"), mac = q.get("mac"), apk = q.get("apk");
+  // 支持部署时用查询串临时挂真链接验收（正式上线改为直接写 href）
+  if (tf) {
+    var ios = document.getElementById("iosDl");
+    ios.href = "https://testflight.apple.com/join/" + encodeURIComponent(tf);
+    ios.classList.remove("disabled");
+    ios.textContent = "iOS · 加入 TestFlight";
+  }
+  if (mac) {
+    var m = document.getElementById("macDl");
+    m.href = encodeURI(mac);
+    m.classList.remove("disabled");
+    m.textContent = "macOS · 下载 dmg";
+  }
+  if (apk) {
+    var and = document.getElementById("andDl");
+    and.href = encodeURI(apk);
+    and.classList.remove("disabled");
+    and.textContent = "Android · 下载 APK";
+  }
+</script>
+</body>
+</html>
