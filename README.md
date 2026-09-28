@@ -9,6 +9,7 @@
 - **源码仓**：<https://github.com/kowems/larkwire-relay>（本仓，MIT）
 - **npm 安装**：`@larkwire/relay`
 - **单文件部署**：不想装 npm？[Releases](https://github.com/kowems/larkwire-relay/releases) 页下载 `relay.bundle.mjs`，`node relay.bundle.mjs` 直接跑
+- **手机 App 下载**：iOS（TestFlight 审核中）/ Android（应用市场即将上架）——见 <https://larkwire.kowems.site#download>（App 闭源，不在任何公开仓）
 
 > 灵鹊三仓：[`larkwire`](https://github.com/kowems/larkwire)（电脑端桥 + 协议）· **`larkwire-relay`（中继，本仓）** · [`larkwire-desktop`](https://github.com/kowems/larkwire-desktop)（电脑桌面应用）
 

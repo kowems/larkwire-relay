@@ -139,10 +139,10 @@
     <h1>把手机变成 Agent 遥控台</h1>
     <p class="tag">电脑上的 Claude Code 在干活，你在手机上看、接、控</p>
 
-    <div class="dl">
-      <a class="btn btn-primary disabled" id="iosDl" href="#">iOS · TestFlight（即将开放）</a>
+    <div class="dl" id="download">
+      <a class="btn btn-primary disabled" id="iosDl" href="#">iOS · TestFlight（审核中）</a>
       <a class="btn btn-ghost disabled" id="macDl" href="#">macOS（即将开放）</a>
-      <a class="btn btn-ghost disabled" id="andDl" href="#">Android APK（即将开放）</a>
+      <a class="btn btn-ghost disabled" id="andDl" href="#">Android · 应用市场（即将上架）</a>
     </div>
 
     <div class="codeblock">
@@ -181,7 +181,7 @@
     <h2>三步上手</h2>
     <p class="sec-sub">全程不用注册账号、不用填手机号</p>
     <ol>
-      <li><b>手机装灵鹊 App</b><br><span class="dim">iOS 走 TestFlight，Android 直接装 APK</span></li>
+      <li><b>手机装灵鹊 App</b><br><span class="dim">iOS 走 TestFlight，Android 在应用市场下载</span></li>
       <li><b>电脑跑 <span class="code">npx larkwire up</span>，手机扫终端上的二维码</b><br><span class="dim">扫码时手机和终端显示同一段公钥指纹，核对一致再确认</span></li>
       <li><b>在电脑上正常开 Claude Code 干活</b><br><span class="dim">会话自动出现在手机上，看 / 接 / 控随时可用</span></li>
     </ol>
@@ -226,14 +226,14 @@
   </div>
 </footer>
 
-<!-- 公测链接替换点：
-  iOS：  document.getElementById('iosDl').href = 'https://testflight.apple.com/join/XXXX' 并去掉 disabled 态与「即将」文案
+<!-- 公测链接替换点（Eric 拍板：安装包全部走应用市场，官网为下载地址唯一事实源）：
+  iOS：  document.getElementById('iosDl').href = 'https://testflight.apple.com/join/XXXX' 并去掉 disabled 态与「审核中」文案
   macOS: document.getElementById('macDl').href = '/dl/larkwire.dmg' 同上
-  Android: document.getElementById('andDl').href = '/dl/larkwire.apk' 同上
+  Android: document.getElementById('andDl').href = '<应用市场链接>' 同上（市场链接，不自托管 APK）
 -->
 <script>
   var q = new URLSearchParams(location.search);
-  var tf = q.get("tf"), mac = q.get("mac"), apk = q.get("apk");
+  var tf = q.get("tf"), mac = q.get("mac"), mkt = q.get("mkt");
   // 支持部署时用查询串临时挂真链接验收（正式上线改为直接写 href）
   if (tf) {
     var ios = document.getElementById("iosDl");
@@ -247,11 +247,11 @@
     m.classList.remove("disabled");
     m.textContent = "macOS · 下载 dmg";
   }
-  if (apk) {
+  if (mkt) {
     var and = document.getElementById("andDl");
-    and.href = encodeURI(apk);
+    and.href = encodeURI(mkt);
     and.classList.remove("disabled");
-    and.textContent = "Android · 下载 APK";
+    and.textContent = "Android · 应用市场下载";
   }
 </script>
 </body>
