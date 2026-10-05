@@ -1,6 +1,6 @@
 {
   "name": "@larkwire/relay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "灵鹊 Larkwire 哑中继：WSS 转发 + 配对路由 + 离线队列 + 计量，对内容零可见",
   "license": "MIT",
   "type": "module",
