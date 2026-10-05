@@ -62,9 +62,15 @@ function log(...args: unknown[]): void {
   console.log(new Date().toISOString(), ...args);
 }
 
-export function startRelay(opts: { host: string; port: number; dbPath: string }): void {
+export interface RelayHandle {
+  /** 停服：断开全部连接 + 关 HTTP 监听 + 关 sqlite（集成测试用；生产入口忽略返回值） */
+  stop: () => Promise<void>;
+}
+
+export function startRelay(opts: { host: string; port: number; dbPath: string }): RelayHandle {
   const db = new RelayDb(opts.dbPath);
   const wss = new WebSocketServer({ host: opts.host, port: opts.port });
+  const sockets = new Set<WebSocket>();
   const online = new Map<string, ClientState>(); // deviceId → 唯一在线连接
   const offers = new Map<string, PairOffer>(); // token → offer
 
@@ -102,6 +108,15 @@ export function startRelay(opts: { host: string; port: number; dbPath: string })
   function pairError(to: string, stage: "offer" | "accept" | "confirm", reason: string, token?: string): void {
     const env = makeEnvelope(T.PairError, "relay", to, 0, JSON.stringify({ stage, reason, token }));
     sendEnvelope(to, env);
+  }
+
+  /** #83：中继代发撤销——在线直发，离线进队列。body.targetDeviceId=发起方 id（「谁没了」），
+   *  消费方（桥 handleRevoke / 手机 applyRemoteRevoke）均按已解绑幂等处理，重复送达无害 */
+  function relayRevoke(target: string, who: string): void {
+    const env = makeEnvelope(T.PairRevoke, "relay", target, 0, JSON.stringify({ targetDeviceId: who } satisfies PairRevokeBody));
+    if (sendEnvelope(target, env)) return;
+    db.enqueueOffline(target, JSON.stringify(env), Date.now(), OFFLINE_QUEUE_MAX, OFFLINE_QUEUE_TTL_MS);
+    log(`queued pair.revoke（中继代发）→ offline ${target}`);
   }
 
   function broadcastPresence(deviceId: string, name: string | undefined, onlineNow: boolean): void {
@@ -178,7 +193,12 @@ export function startRelay(opts: { host: string; port: number; dbPath: string })
         db.deletePairing(env.from, body.targetDeviceId);
         log(`pairing revoked ${env.from} ✂ ${body.targetDeviceId}`);
       } catch { /* 畸形 body 只路由不处理 */ }
-      if (online.has(env.to)) sendEnvelope(env.to, env);
+      // #83：目标离线也必须送达——撤销帧入离线队列（QUEUEABLE_TYPES 已含 pair.revoke）。
+      // 发起方随后那封 to=relay 的撤销还会在 handleRelayInternal 代发第二封，
+      // 消费方对已解绑态幂等（双保险，不做去重——跨帧判定状态反而添复杂度）
+      if (sendEnvelope(env.to, env)) return;
+      db.enqueueOffline(env.to, raw, now, OFFLINE_QUEUE_MAX, OFFLINE_QUEUE_TTL_MS);
+      log(`queued ${env.type} → offline ${env.to}`);
       return;
     }
 
@@ -271,16 +291,17 @@ export function startRelay(opts: { host: string; port: number; dbPath: string })
       try {
         const body = JSON.parse(env.body) as PairRevokeBody;
         if (body.targetDeviceId === client.deviceId) {
-          // 自解绑：删自己的所有配对
-          for (const peer of db.peersOf(client.deviceId!)) {
+          // 自解绑：删自己的所有配对，并逐个代发撤销（离线也入队——#83）
+          const peers = db.peersOf(client.deviceId!);
+          for (const peer of peers) {
             db.deletePairing(client.deviceId!, peer);
-            if (online.has(peer)) {
-              sendEnvelope(peer, makeEnvelope(T.PairRevoke, "relay", peer, 0, JSON.stringify({ targetDeviceId: client.deviceId })));
-            }
+            relayRevoke(peer, client.deviceId!);
           }
           log(`self-revoke ${client.deviceId}`);
         } else {
           db.deletePairing(client.deviceId!, body.targetDeviceId);
+          // #83：定向撤销也要通知被删的一方，否则它离线回来就是裂脑
+          relayRevoke(body.targetDeviceId, client.deviceId!);
           log(`revoke ${client.deviceId} ✂ ${body.targetDeviceId}`);
         }
       } catch { /* ignore */ }
@@ -291,6 +312,8 @@ export function startRelay(opts: { host: string; port: number; dbPath: string })
   }
 
   wss.on("connection", (ws) => {
+    sockets.add(ws);
+    ws.on("close", () => sockets.delete(ws));
     const client: ClientState = {
       ws,
       authed: false,
@@ -370,6 +393,16 @@ export function startRelay(opts: { host: string; port: number; dbPath: string })
           for (const queued of db.drainOffline(client.deviceId, Date.now(), OFFLINE_QUEUE_TTL_MS)) {
             ws.send(queued);
           }
+          // #83 连接即对账：把当前全部 active 对端下发给本设备。设备侧把本地配对与此比对，
+          // 不在列表的清掉——队列 TTL（10 分钟）之外的离线撤销也能被发现，与离线时长无关
+          const status = makeEnvelope(
+            T.PairStatus,
+            "relay",
+            client.deviceId,
+            0,
+            JSON.stringify({ peers: db.peersOf(client.deviceId) }),
+          );
+          send(client, status);
           broadcastPresence(client.deviceId, client.name, true);
           // 在线状态回同步：只广播"我上线了"不够——重连方（手机被 Safari 挂起断线重连后）
           // 永远不知道对端此刻在线，直到对端下次上下线才补。把当前在线的对端逐个回告。
@@ -403,4 +436,21 @@ export function startRelay(opts: { host: string; port: number; dbPath: string })
     log(`larkwire-relay listening on ws://${opts.host}:${opts.port} (db: ${opts.dbPath})`);
     logPushStatus(); // 推送开关启动即明示（env 缺一=禁用，别等排查时才发现）
   });
+
+  return {
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        for (const ws of sockets) {
+          ws.removeAllListeners("close");
+          ws.close();
+        }
+        wss.close((err) => {
+          if (err) reject(err);
+          else {
+            db.close();
+            resolve();
+          }
+        });
+      }),
+  };
 }
