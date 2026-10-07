@@ -141,7 +141,7 @@
 
     <div class="dl" id="download">
       <a class="btn btn-primary disabled" id="iosDl" href="#">iOS · TestFlight（审核中）</a>
-      <a class="btn btn-ghost disabled" id="macDl" href="#">macOS（即将开放）</a>
+      <a class="btn btn-ghost" id="macDl" href="https://github.com/kowems/larkwire-desktop/releases/latest">macOS · 下载 dmg</a>
       <a class="btn btn-ghost disabled" id="andDl" href="#">Android · 应用市场（即将上架）</a>
     </div>
 
@@ -228,7 +228,7 @@
 
 <!-- 公测链接替换点（Eric 拍板：安装包全部走应用市场，官网为下载地址唯一事实源）：
   iOS：  document.getElementById('iosDl').href = 'https://testflight.apple.com/join/XXXX' 并去掉 disabled 态与「审核中」文案
-  macOS: document.getElementById('macDl').href = '/dl/larkwire.dmg' 同上
+  macOS: 已直接写死 GitHub Releases latest（v0.1.5 起）；换分发口径改 macDl 的 href 即可
   Android: document.getElementById('andDl').href = '<应用市场链接>' 同上（市场链接，不自托管 APK）
 -->
 <script>
