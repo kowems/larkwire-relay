@@ -4,15 +4,12 @@
 （`/usr/bin/node --experimental-sqlite /opt/larkwire-relay/relay.bundle.mjs`，Restart=always），
 nginx 反代 wss://larkwire.kowems.site/ws → 127.0.0.1:8790。同机还有 Ampiq 生产——**不动 nginx、不动 Ampiq**。
 
-## ① 打 bundle（在本仓根目录，需 Node ≥ 22）
+## ① 打 bundle（在 Mac 仓库根目录）
 
 ```bash
-npm install      # 从 npm 拉 @larkwire/protocol@^0.1.0，不依赖 monorepo workspace
-npm run bundle
-# 等价于：
-# node_modules/.bin/esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 \
-#   --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-#   --outfile=relay.bundle.mjs
+node_modules/.bin/esbuild packages/relay/src/index.ts --bundle --platform=node --format=esm --target=node22 \
+  --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
+  --outfile=relay.bundle.mjs
 ```
 
 要点（全是踩过的坑）：
@@ -20,7 +17,8 @@ npm run bundle
 - **banner 必须**。ws 是 CJS，ESM bundle 里 dynamic require 会崩
   `Dynamic require of "events" is not supported`；createRequire banner 兜底。
 - `node:*` 内置模块自动外置，不用 `--external`。
-- esbuild 已在 devDependencies 里，`npm install` 后 `node_modules/.bin/esbuild` 即在。
+- esbuild 当前是传递依赖给的（`node_modules/.bin/esbuild` 在就行）；
+  若哪天没了：`pnpm add -Dw esbuild`。
 - 产物约 230KB 单文件，scp 上服务器即全部部署物。
 
 ## ② 本地冒烟（可选但推荐）
@@ -32,7 +30,6 @@ LARKWIRE_RELAY_HOST=127.0.0.1 LARKWIRE_RELAY_PORT=8799 LARKWIRE_RELAY_DB=/tmp/lw
 ```
 
 注意：挑**空闲端口**（8799），别碰本机 dev 中继的 8790。
-`--experimental-sqlite` 在 Node ≥ 22.23 已非必需（node:sqlite 默认可用），但 flag 仍被接受、保留无害。
 
 ## ③ 上传 + 重启
 
@@ -55,14 +52,14 @@ ssh root@47.102.104.159 'cp /opt/larkwire-relay/relay.bundle.mjs.bak-YYYYMMDD /o
 
 ## ③.5 www 静态页（/pair 落地页，2026-09-23 起）
 
-仓库 `www/` ↔ 服务器 `/opt/larkwire-relay/www/`，nginx `location /pair`
+仓库 `packages/relay/www/` ↔ 服务器 `/opt/larkwire-relay/www/`，nginx `location /pair`
 直接出文件（不过中继进程，改页面不用重启中继）：
 
 ```bash
-scp www/pair/index.html root@47.102.104.159:/opt/larkwire-relay/www/pair/index.html
+scp packages/relay/www/pair/index.html root@47.102.104.159:/opt/larkwire-relay/www/pair/index.html
 ```
 
-nginx 配置在 `/etc/nginx/sites-available/larkwire`（本地副本 `deploy/larkwire.nginx.conf`，
+nginx 配置在 `/etc/nginx/sites-available/larkwire`（本地副本 `.debug/nginx-larkwire.conf`，
 改动先备份 `cp larkwire larkwire.bak-YYYYMMDD` → scp → `nginx -t && systemctl reload nginx`，
 reload 不断 ws 长连）。落地页逻辑：微信 UA→「浏览器打开」蒙层；非微信→自动 scheme
 `larkwire://pair?…` 拉起 App + 2.5s 未拉起显示未装引导（TestFlight/APK 链接=占位注释，
@@ -75,19 +72,19 @@ reload 不断 ws 长连）。落地页逻辑：微信 UA→「浏览器打开」
 `deploy/larkwire.nginx.conf`（root 提 server 级、新增 AASA/dl/location /）。
 
 ```bash
-# ① 推静态资产（本仓根目录；dmg 从 larkwire-desktop Release 下载后推，不入库）
-scp -r www/index.html www/.well-known \
+# ① 推静态资产（Mac 仓库根目录；dmg 直接从 desktop release 推，不入库）
+scp -r packages/relay/www/index.html packages/relay/www/.well-known \
     root@47.102.104.159:/opt/larkwire-relay/www/
-scp www/pair/index.html \
+scp packages/relay/www/pair/index.html \
     root@47.102.104.159:/opt/larkwire-relay/www/pair/index.html
-scp Larkwire-0.1.0-arm64.dmg \
+scp packages/desktop/release/灵鹊-0.1.0-arm64.dmg \
     root@47.102.104.159:/opt/larkwire-relay/www/dl/larkwire.dmg
 # APK 云打包到手后：scp .../larkwire.apk root@host:/opt/larkwire-relay/www/dl/larkwire.apk
 
 # ② nginx：备份 → 替换 → 校验 → reload（不断 ws）
 ssh root@47.102.104.159 'cp /etc/nginx/sites-available/larkwire \
     /etc/nginx/sites-available/larkwire.bak-$(date +%Y%m%d-%H%M%S)'
-scp deploy/larkwire.nginx.conf \
+scp packages/relay/deploy/larkwire.nginx.conf \
     root@47.102.104.159:/etc/nginx/sites-available/larkwire
 ssh root@47.102.104.159 'nginx -t && systemctl reload nginx'
 
@@ -108,13 +105,14 @@ TestFlight join 链接到手后：更新首页与 pair 页（替换点 HTML 注�
 | 变量 | 值/说明 |
 |---|---|
 | `LARKWIRE_RELAY_HOST` | `127.0.0.1`（只给 nginx 反代） |
-| `LARKWIRE_RELAY_PORT` | `8790` |
-| `LARKWIRE_RELAY_DB` | 缺省 `~/.larkwire/relay.db`（配对/push token 持久化，重启不丢） |
+| `PORT` | `8790` |
+| `LARKWIRE_RELAY_DB` | 缺省 `/root/.larkwire/relay.db`（配对/push token 持久化，重启不丢） |
 | `GETUI_APP_ID` / `GETUI_APP_KEY` / `GETUI_MASTER_SECRET` | 个推 **uni-push 1.0** 三值（DCloud 开发者中心 → uni-push → 1.0（老版本）→ 消息推送 → 应用配置；2.0 无 MasterSecret 不能直连 REST）。**生产形态放 `/etc/larkwire/getui.json`（600）**，env 优先级更高（同名 env 存在即覆盖文件对应键）。**缺任一=推送自动禁用**（启动日志明示来源），其余功能不受影响；配齐后 `systemctl restart` 即开推送。注意不配 AppSecret（客户端级） |
+| `GETUI_BASE_URL` | 个推 REST 基址覆盖。⚠️ **生产严禁设置**——设错会把真实推送打到错误主机；默认值即官方 `https://restapi.getui.com/v2`。仅供测试把出站请求指到本地模拟网关 |
 
 ## 运维小工具：test-push.cjs（服务器直发测试推送）
 
-`/opt/larkwire-relay/test-push.cjs`（源码 `scripts/test-push.cjs`，改过要同步 scp）——绕开中继直调个推 REST v2，真机验证推送链路/通知直达落点用，无需搭真实业务场景：
+`/opt/larkwire-relay/test-push.cjs`（源码 `packages/relay/scripts/test-push.cjs`，改过要同步 scp）——绕开中继直调个推 REST v2，真机验证推送链路/通知直达落点用，无需搭真实业务场景：
 
 ```bash
 ssh root@47.102.104.159

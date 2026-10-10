@@ -221,9 +221,10 @@ export function startRelay(opts: { host: string; port: number; dbPath: string })
       log(`queued ${env.type} → offline ${env.to}`);
     }
     // M3 推送触发：notify.request 目标离线且有 push token → 转个推 APNs（hint 明文选模板，
-    // body 密文中继不可读；sid 明文=点通知直达会话）。fire-and-forget 不阻塞路由；入离线队列逻辑不变（双通道兜底）
+    // body 密文中继不可读；sid 明文=点通知直达会话；proj/tool 明文=渲染「目录·工具」进文案）。
+    // fire-and-forget 不阻塞路由；入离线队列逻辑不变（双通道兜底）
     if (env.type === T.NotifyRequest) {
-      void sendPush(db, env.to, env.hint, env.sid);
+      void sendPush(db, env.to, env.hint, env.sid, env.proj, env.tool);
     }
   }
 

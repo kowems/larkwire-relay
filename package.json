@@ -1,6 +1,6 @@
 {
   "name": "@larkwire/relay",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "灵鹊 Larkwire 哑中继：WSS 转发 + 配对路由 + 离线队列 + 计量，对内容零可见",
   "license": "MIT",
   "type": "module",
@@ -24,7 +24,7 @@
     "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\" --outfile=relay.bundle.mjs"
   },
   "dependencies": {
-    "@larkwire/protocol": "^0.1.0",
+    "@larkwire/protocol": "^0.2.0",
     "tweetnacl": "^1.0.3",
     "ws": "^8.18.0"
   },

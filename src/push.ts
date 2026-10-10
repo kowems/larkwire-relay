@@ -1,11 +1,14 @@
 /**
  * 推送网关（M3，Facade）：notify.request 目标离线时转个推 REST v2（iOS 走 APNs，个推代发）。
  *
- * 设计口径（Eric 拍板 2026-09-21）：
+ * 设计口径（Eric 拍板 2026-09-21；推送增强修订 2026-10-08）：
  *   - 触发判断在中继（presence 最权威）；桥只管广播 notify.request，不感知推送通道；
- *   - 文案通用化——过第三方服务器的只有 hint 标签选出的模板，工具名/命令不出端；
- *   - 每设备每类事件 60s 限流防权限风暴轰炸（⚠️ 修订 2026-09-23：限流键加 hint 维度——
- *     原纯 deviceId 口径会让「答权限卡」吞掉 60s 内紧随的「回合完成」推送，Eric 实机踩中拍板修）；
+ *   - 文案由 hint 标签 + 信封外层 proj/tool 字段渲染。2026-09-21 原口径「文案通用化，
+ *     工具名/命令不出端」于 2026-10-08 经 Eric 拍板修订：**项目目录 basename + 权限工具名
+ *     可出端**（如「🔐 larkwire · Bash 等你授权」）；完整路径/命令/输入/会话标题永不出端，
+ *     中继渲染前再过一遍消毒；缺字段时逐字回退通用模板（老桥兼容）；
+ *   - 每设备每会话每类事件 60s 限流防权限风暴轰炸（⚠️ 修订 2026-09-23：限流键加 hint 维度；
+ *     再修订 2026-10-08：加 sid 维度——不同会话各自完成不再互相吞通知）；
  *   - env 缺一 = 功能禁用（启动日志明示，其余功能不受影响）；
  *   - 失败只 log 不吞错、不阻塞路由（入离线队列逻辑不变，双通道兜底）。
  *
@@ -19,8 +22,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import type { RelayDb } from "./db.js";
 
-const GETUI_BASE = "https://restapi.getui.com/v2";
-const RATE_LIMIT_MS = 60_000; // 每设备每类事件 60s 最多 1 条推送（同类连发才限，跨类型不互相吞）
+// 个推 REST 基址；GETUI_BASE_URL 仅供测试把出站请求指到本地模拟网关。
+// ⚠️ 生产环境勿设此变量——会把真实推送打到错误主机（默认值即官方地址）
+const GETUI_BASE = process.env.GETUI_BASE_URL ?? "https://restapi.getui.com/v2";
+const RATE_LIMIT_MS = 60_000; // 每设备每会话每类事件 60s 最多 1 条推送（同会话同类连发才限，跨会话/跨类型不互相吞）
 const TOKEN_REFRESH_MS = 23 * 3600_000; // 个推 auth token 官方 24h 有效，提前 1h 换
 
 interface GetuiKeysFile {
@@ -64,14 +69,69 @@ const SOURCE_DESC = KEY_SOURCES.every((s) => s === "env")
     ? `密钥文件 ${keysFile.path}`
     : "混合（环境变量+密钥文件）";
 
-/** hint → 推送模板（与桥侧 notify.request body 文案同源，细节一律打开 App 看） */
-const TEMPLATES: Record<string, { title: string; body: string }> = {
+/** hint → 通用推送模板（无 proj 时逐字回退；与桥侧 notify.request body 文案同源，细节打开 App 看） */
+export const TEMPLATES: Record<string, { title: string; body: string }> = {
   permission: { title: "灵鹊", body: "🔐 有操作等你授权" },
   runDone: { title: "灵鹊", body: "✅ 会话回合完成" },
 };
-const FALLBACK_TEMPLATE = { title: "灵鹊", body: "有新消息" };
+export const FALLBACK_TEMPLATE = { title: "灵鹊", body: "有新消息" };
 
-const lastSentAt = new Map<string, number>(); // "deviceId:hint" → 上次推送时间（限流，内存态重启即清零，可接受）
+const MAX_LABEL_CHARS = 24; // 目录名/工具名展示上限（APNs 通知栏长度与隐私双重考虑）
+
+/**
+ * 项目目录名消毒（中继侧第二道关，桥侧已只传 basename）：
+ * 去控制字符（含换行/制表——防注入伪造通知文案）、连续空白折叠为单空格、trim、按码点截 24。
+ * 结果为空 → undefined（调用方按「无目录」回退通用文案）。
+ */
+export function sanitizeProject(raw: string): string | undefined {
+  const cleaned = Array.from(
+    raw.replace(/[\x00-\x1f\x7f]/g, ""),
+  )
+    .slice(0, MAX_LABEL_CHARS)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || undefined;
+}
+
+/** 工具名消毒：只留 [A-Za-z0-9_-]（CC 工具名本就长这样），截 24；全被剔光 → undefined（省略工具名） */
+export function sanitizeTool(raw: string): string | undefined {
+  const cleaned = Array.from(raw.replace(/[^A-Za-z0-9_-]/g, "")).slice(0, MAX_LABEL_CHARS).join("");
+  return cleaned || undefined;
+}
+
+/**
+ * 推送文案渲染（纯函数）：
+ *   permission + proj + tool → 🔐 {proj} · {tool} 等你授权
+ *   permission + proj        → 🔐 {proj} · 有操作等你授权
+ *   runDone + proj           → ✅ {proj} · 会话回合完成
+ * proj 缺失/消毒空 / hint 未知 → 对应通用模板（逐字，老桥兼容）。
+ */
+export function renderPushTemplate(
+  hint: string | undefined,
+  proj?: string,
+  tool?: string,
+): { title: string; body: string } {
+  const project = proj !== undefined ? sanitizeProject(proj) : undefined;
+  if (project === undefined) {
+    return (hint !== undefined ? TEMPLATES[hint] : undefined) ?? FALLBACK_TEMPLATE;
+  }
+  if (hint === "permission") {
+    const toolName = tool !== undefined ? sanitizeTool(tool) : undefined;
+    return {
+      title: "灵鹊",
+      body: toolName
+        ? `🔐 ${project} · ${toolName} 等你授权`
+        : `🔐 ${project} · 有操作等你授权`,
+    };
+  }
+  if (hint === "runDone") {
+    return { title: "灵鹊", body: `✅ ${project} · 会话回合完成` };
+  }
+  return FALLBACK_TEMPLATE;
+}
+
+const lastSentAt = new Map<string, number>(); // "deviceId:hint:sid" → 上次推送时间（限流，内存态重启即清零，可接受）
 let authToken: { token: string; expiresAt: number } | null = null;
 
 function log(...args: unknown[]): void {
@@ -149,19 +209,31 @@ export function buildPushRequest(
  * notify.request 目标离线时调用（路由处 fire-and-forget）。
  * 没登记过 token（旧版 App / 未开推送）静默跳过——离线队列仍是兜底通道。
  */
-export async function sendPush(db: RelayDb, deviceId: string, hint: string | undefined, sessionId?: string): Promise<void> {
+export async function sendPush(
+  db: RelayDb,
+  deviceId: string,
+  hint: string | undefined,
+  sessionId?: string,
+  proj?: string,
+  tool?: string,
+): Promise<void> {
   if (!ENABLED) return;
   const rec = db.getPushToken(deviceId);
   if (!rec) return;
 
   const now = Date.now();
-  const rateKey = `${deviceId}:${hint ?? "?"}`;
-  if (now - (lastSentAt.get(rateKey) ?? 0) < RATE_LIMIT_MS) {
-    log(`push 限流 ${deviceId}（60s 内已发过同类，hint=${hint ?? "?"}）`);
+  // 限流键含 sid：不同会话的完成/请示各算各的；同会话同类事件 60s 仍只发一条
+  const rateKey = `${deviceId}:${hint ?? "?"}:${sessionId ?? "-"}`;
+  const prevAt = lastSentAt.get(rateKey) ?? 0;
+  if (now - prevAt < RATE_LIMIT_MS) {
+    log(`push 限流 ${deviceId}（60s 内已发过同会话同类，hint=${hint ?? "?"}）`);
     return;
   }
+  // 进入即占坑（而非成功后才记）：同一 tick 两条同键 fire-and-forget 不能都通过检查
+  // （路由处是 void sendPush，权限风暴时可能同步连发）；发送失败再回滚，允许后续重试
+  lastSentAt.set(rateKey, now);
 
-  const tpl = (hint !== undefined ? TEMPLATES[hint] : undefined) ?? FALLBACK_TEMPLATE;
+  const tpl = renderPushTemplate(hint, proj, tool);
   try {
     const token = await getAuthToken();
     const res = await fetch(`${GETUI_BASE}/${APP_ID}/push/single/cid`, {
@@ -171,16 +243,18 @@ export async function sendPush(db: RelayDb, deviceId: string, hint: string | und
     });
     const data = (await res.json()) as { code?: number; msg?: string };
     if (data.code === 0) {
-      lastSentAt.set(rateKey, now);
       log(`push 已发 ${deviceId} hint=${hint ?? "?"}${sessionId ? ` sid=${sessionId.slice(0, 8)}…` : ""}（${tpl.body}）`);
     } else if (data.code === 10001) {
       // token 失效：清缓存，下一条推送重新 auth（本条丢弃可接受——离线队列兜底）
       authToken = null;
+      lastSentAt.set(rateKey, prevAt);
       log(`push auth token 失效（code=10001），已清缓存待下条重新 auth`);
     } else {
+      lastSentAt.set(rateKey, prevAt);
       log(`push 失败 ${deviceId}：code=${data.code} ${data.msg ?? ""}`);
     }
   } catch (err) {
+    lastSentAt.set(rateKey, prevAt);
     log(`push 异常 ${deviceId}：${err instanceof Error ? err.message : String(err)}`);
   }
 }
